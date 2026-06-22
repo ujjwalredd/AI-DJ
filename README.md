@@ -1,5 +1,7 @@
 # AI DJ
 
+[Live demo](https://ai-dj.up.railway.app)
+
 ![AI DJ demo](assets/demo.gif)
 
 AI DJ is a self-hosted autonomous AI DJ system. It builds a live set from a plain-language vibe, searches for real tracks with `yt-dlp`, analyzes the decoded audio in the browser, and performs a continuous two-deck DJ mix with Web Audio, React, and a real-time 3D controller UI.
