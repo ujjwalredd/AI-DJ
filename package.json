@@ -1,5 +1,5 @@
 {
-  "name": "nexus-ai-dj",
+  "name": "ai-dj",
   "version": "1.0.0",
   "description": "Autonomous AI DJ that plans, fetches, analyzes, and mixes a continuous live set.",
   "type": "module",

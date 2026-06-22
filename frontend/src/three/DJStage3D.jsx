@@ -4,7 +4,7 @@ import { Component, Suspense, useEffect, useMemo, useRef, useState } from 'react
 import * as THREE from 'three';
 import { useDJ } from '../store.js';
 
-const EMPTY_A = { title: 'NEXUS', artist: 'Autonomous AI DJ', bpm: 122, camelot: '8A' };
+const EMPTY_A = { title: 'AI DJ', artist: 'Autonomous AI DJ', bpm: 122, camelot: '8A' };
 const EMPTY_B = { title: 'Cue Ready', artist: 'Next record', bpm: 124, camelot: '9A' };
 const REAL_CONTROLLER_URL = '/models/dj-controller.glb';
 useGLTF.preload(REAL_CONTROLLER_URL);
@@ -586,9 +586,9 @@ function MixerBranding() {
   return (
     <group>
       <Label text="PERFORMANCE DJ CONTROLLER" position={[-0.94, 0.39, -0.92]} width={0.86} height={0.11} size={21} />
-      <Label text="NEXUS FLX-AI" position={[-0.94, 0.39, -0.72]} width={0.72} height={0.14} color="#f8fafc" size={28} />
+      <Label text="AI DJ FLX" position={[-0.94, 0.39, -0.72]} width={0.72} height={0.14} color="#f8fafc" size={28} />
       <Label text="yt-dlp / Web Audio" position={[-0.94, 0.39, -0.52]} width={0.72} height={0.11} size={22} />
-      <Label text="NEXUS" position={[0, 0.39, 1.55]} width={0.52} height={0.13} color="#f8fafc" size={30} />
+      <Label text="AI DJ" position={[0, 0.39, 1.55]} width={0.52} height={0.13} color="#f8fafc" size={30} />
     </group>
   );
 }

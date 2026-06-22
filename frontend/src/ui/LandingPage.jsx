@@ -12,7 +12,7 @@ export default function LandingPage({ onEnter }) {
       {/* Top bar */}
       <header className="flex items-center justify-between mb-16">
         <div className="flex items-center gap-3">
-          <span className="font-display text-xl font-bold tracking-tight text-ink">NEXUS</span>
+          <span className="font-display text-xl font-bold tracking-tight text-ink">AI DJ</span>
         </div>
       </header>
 
@@ -23,7 +23,7 @@ export default function LandingPage({ onEnter }) {
             Autonomous<br />AI on the decks.
           </h1>
           <p className="mt-6 max-w-md text-lg leading-relaxed text-ink/70 font-medium">
-            Pick a crate. NEXUS searches YouTube, analyzes each track, and mixes a continuous,
+            Pick a crate. AI DJ searches YouTube, analyzes each track, and mixes a continuous,
             beatmatched set — hands on the controller like a real DJ.
           </p>
           <button

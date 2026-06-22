@@ -1,8 +1,8 @@
-# NEXUS AI DJ
+# AI DJ
 
-NEXUS is a self-hosted autonomous AI DJ system. It builds a live set from a plain-language vibe, searches for real tracks with `yt-dlp`, analyzes the decoded audio in the browser, and performs a continuous two-deck DJ mix with Web Audio, React, and a real-time 3D controller UI.
+AI DJ is a self-hosted autonomous AI DJ system. It builds a live set from a plain-language vibe, searches for real tracks with `yt-dlp`, analyzes the decoded audio in the browser, and performs a continuous two-deck DJ mix with Web Audio, React, and a real-time 3D controller UI.
 
-The goal is not a playlist with a crossfade. NEXUS is structured like a DJ crew:
+The goal is not a playlist with a crossfade. AI DJ is structured like a DJ crew:
 
 - a Set Director chooses the musical direction and crate strategy
 - a Selector picks real, findable next-track candidates
@@ -104,7 +104,7 @@ Landing page
 
 ## AI Agents
 
-DECK9 uses a mix of LLM agents and deterministic local agents. The LLM decides musical intent; local code enforces safety, timing, and audio correctness.
+AI DJ uses a mix of LLM agents and deterministic local agents. The LLM decides musical intent; local code enforces safety, timing, and audio correctness.
 
 ### 1. Set Director
 
@@ -694,7 +694,7 @@ Manual acceptance:
 
 ## Deployment Notes
 
-DECK9 V1 should be deployed to a Node host where `yt-dlp` can run and the process can write to a cache directory.
+AI DJ V1 should be deployed to a Node host where `yt-dlp` can run and the process can write to a cache directory.
 
 Good targets:
 

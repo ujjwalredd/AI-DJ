@@ -49,7 +49,7 @@ export default function Console({ onStop }) {
             <Radio size={15} aria-hidden="true" />
             Live autonomous set
           </div>
-          <h1 className="mt-1 truncate font-display text-2xl font-bold sm:text-4xl">{setName || 'NEXUS Live'}</h1>
+          <h1 className="mt-1 truncate font-display text-2xl font-bold sm:text-4xl">{setName || 'AI DJ Live'}</h1>
           <div className="mt-2 flex flex-wrap gap-2 font-mono text-xs text-white/[0.62]">
             <span className="rounded-md border border-mint/30 bg-mint/[0.12] px-2 py-1 text-mint">{genre || 'Open format'}</span>
             <span className="rounded-md border border-white/[0.12] bg-black/[0.28] px-2 py-1">YouTube crate</span>
