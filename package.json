@@ -1,0 +1,15 @@
+{
+  "name": "nexus-ai-dj",
+  "version": "1.0.0",
+  "description": "Autonomous AI DJ that plans, fetches, analyzes, and mixes a continuous live set.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "build": "cd frontend && npm install && npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "express": "^4.19.2"
+  }
+}

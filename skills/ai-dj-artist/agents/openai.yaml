@@ -1,0 +1,3 @@
+display_name: AI DJ Artist
+short_description: Pro DJ rules for DECK9 mixing.
+default_prompt: Use ai-dj-artist to improve DECK9 autonomous DJ selection, phrasing, transitions, Web Audio scheduling, and controller visuals.
