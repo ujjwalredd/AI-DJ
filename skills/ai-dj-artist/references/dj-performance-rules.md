@@ -1,6 +1,6 @@
-# DECK9 AI DJ Performance Rules
+# AI DJ Performance Rules
 
-Use these rules inside the DECK9 Claude DJ agents and while editing the mix engine.
+Use these rules inside the AI DJ Claude agents and while editing the mix engine.
 
 ## Research Anchors
 
@@ -152,6 +152,66 @@ EQ automation should look human:
 - Durations must be finite and strictly positive.
 - Exponential ramps must never target zero or negative frequencies.
 - Start times should be derived from `AudioContext.currentTime` plus a small lookahead, then snapped to beat/phrase.
+
+## Deep Real-DJ Knowledge (energy, harmony, genre, drops, gain)
+
+Researched from working-DJ practice (DJ.Studio, MusicRadar, Pioneer DJ, Vibes, PulseDJ,
+TheGhostProduction). Apply this as judgment, not as rigid math.
+
+### Energy is a wave, not a ramp
+- A great set has peaks AND valleys. Build tension, hit a peak, let the floor breathe with a
+  groovier/deeper track, then build again to a higher peak. Don't sit at max energy the whole time.
+- Tension/release works at two scales: inside one transition, and across the whole set arc.
+- Set shapes: Journey (slow build + release over a long set), Peak-time (relentless high energy),
+  Warm-up (start low, hand over warm), Cool-down (bring it back down). Pick one and commit.
+- Place micro-peaks deliberately using each phase's targetEnergy; a planned dip makes the next
+  peak feel bigger.
+
+### Harmonic mixing depth (Camelot)
+- Floor: same code (perfect), +/-1 same letter (adjacent/a fifth), same number A<->B (relative
+  major/minor). These always blend.
+- +2 on the wheel (whole-tone/dominant) is a common, slightly brighter move.
+- A bigger jump (e.g. +1 semitone / +7 on the wheel) is an ENERGY BOOST - use it intentionally
+  to lift into a build or peak, never at random, and lean on a filter/echo to sell it.
+- A clashing key is fine if you mix through a filterSweep or echoOut so the two tonalities never
+  ring together.
+
+### Tempo lanes & genre conventions (guidance)
+- Hold a tight BPM lane. Picking a track far outside the running lane breaks the floor unless it
+  is a deliberate reset at a finale/bridge.
+- Typical lanes: house ~120-128, tech house/techno ~125-140, disco/funk/nu-disco ~110-122,
+  hip-hop/trap ~85-100 (or 140-150 felt half-time), amapiano ~110-115, afrobeats ~100-118,
+  reggaeton/dancehall ~90-100, drum & bass ~170-175, Bollywood/desi pop ~95-115, pop ~100-126.
+- Half/double-time is the tool for bridging a lane gap (e.g. 90 BPM rap felt as 180 under a
+  fast set), not for randomly jumping lanes.
+- Per-genre transition feel: house/disco = long harmonic blends + bass swaps; techno = tight
+  loops, EQ trims, the occasional clean cut; hip-hop = quick cuts/back-spins on the downbeat;
+  dnb = half-time drops and double-drops; afrobeats/amapiano = groove-led blends riding the log drum.
+
+### Drops, phrasing, and "on the one"
+- Real phrases are usually 8/16/32 bars - detect them, don't assume 16.
+- Cue the incoming so its DROP lands on an outgoing phrase boundary (on the one). The engine
+  offsets the incoming start to do this when a confident drop is detected.
+- Never drop a new track over a dying vocal or mid-phrase; wait for the boundary.
+- Build a short riser (filter/echo/HPF) in the ~2 bars before a drop to telegraph it.
+
+### EQ & filters in transitions
+- Cut/swap the bass: two kicks/basslines together = mud. Pull the incoming low, swap lows around
+  the phrase handoff. Only one track owns the low end at a time.
+- Mids carry vocals/melody - bring them in deliberately and tame them if two vocals clash.
+- High EQ reveals hats/air; use sparingly to avoid harshness.
+- Low-pass the outgoing down and/or high-pass the incoming up to bridge clashes or save a mix.
+
+### Echo-out & looping discipline
+- Echo-out: apply delay/echo to the last beat or vocal, pull the fader down, drop the new track
+  from its intro/break. Set the delay to the beat (1/1, 1/2, or 2-beat).
+- Loop a stripped section (4 beats of bass/perc) to extend a thin or short section - briefly, and
+  only when justified. Loops and echo throws are different tools; don't loop during an echo-out.
+
+### Gain staging
+- Level-match tracks before mixing so a loud master doesn't flatten a quieter one (per-deck trim
+  toward a shared target). Keep a gentle master limiter/glue to catch overlap peaks - soft knee,
+  no pumping.
 
 ## 3D Controller Rules
 

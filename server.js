@@ -149,6 +149,9 @@ app.post('/api/dj/next', async (req, res) => {
   try {
     res.json(await nextMix({
       current: b.current || {}, setPhase: b.setPhase, bpmTarget: Number(b.bpmTarget) || 122,
+      laneBpm: Number(b.laneBpm) || 0,
+      arcTarget: Number.isFinite(Number(b.arcTarget)) ? Number(b.arcTarget) : undefined,
+      arcDirection: String(b.arcDirection || '').slice(0, 12),
       genre: String(b.genre || '').slice(0, 40),
       played: Array.isArray(b.played) ? b.played.slice(-12).map((s) => String(s).slice(0, 80)) : [],
       memory: sanitizeMemory(b.memory),
@@ -182,8 +185,8 @@ app.post('/api/dj/track', async (req, res) => {
 });
 
 app.post('/api/dj/perform', express.json({ limit: '2mb' }), async (req, res) => {
+  const key = userKeyOf(req, res); if (key === false) return;
   try {
-    const key = String(req.headers['authorization'] || '').replace('Bearer ', '');
     const script = await generatePerformanceScript(req.body, key);
     res.json({ liveEvents: script });
   } catch (err) {
@@ -254,7 +257,7 @@ function sanitizeMemory(memory = {}) {
 }
 
 app.listen(PORT, () => {
-  console.log(`\n  NEXUS AI DJ running -> http://localhost:${PORT}\n`);
+  console.log(`\n  AI DJ running -> http://localhost:${PORT}\n`);
 });
 
 export { idFor };

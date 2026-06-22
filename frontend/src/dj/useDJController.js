@@ -24,7 +24,45 @@ const BAD_UPLOAD_TERMS = [
   /\b8d\s+audio\b/i,
 ];
 const ALT_UPLOAD_ALLOWED = /\b(sl(?:ow|owed)|reverb|acoustic|cover|karaoke|instrumental|lo-?fi|chill|ambient|sleep|study|piano)\b/i;
-const phaseFor = (n) => PHASES[n] || ['build', 'peak', 'peak', 'release'][n % 4];
+const DEFAULT_PHASE_ENERGY = { warmup: 0.4, build: 0.62, peak: 0.86, release: 0.55, finale: 0.74 };
+const clamp01u = (x) => Math.max(0, Math.min(1, Number(x) || 0));
+
+// Arc-driven phase: follow the planned phase curve when present, else the default ramp.
+const phaseFor = (n, plan = null) => {
+  const phases = Array.isArray(plan) ? plan : Array.isArray(plan?.phases) ? plan.phases : null;
+  if (phases && phases.length) {
+    const name = phases[Math.min(Math.max(0, n), phases.length - 1)]?.name;
+    if (name) return String(name).toLowerCase();
+  }
+  return PHASES[n] || ['build', 'peak', 'peak', 'release'][n % 4];
+};
+
+// Target energy at this point of the set, from the planned curve (with a sensible fallback).
+export function arcTargetEnergy(n, plan = null) {
+  const phases = Array.isArray(plan) ? plan : Array.isArray(plan?.phases) ? plan.phases : null;
+  if (phases && phases.length) {
+    const p = phases[Math.min(Math.max(0, n), phases.length - 1)];
+    const e = Number(p?.targetEnergy ?? p?.energy);
+    if (Number.isFinite(e)) return clamp01u(e);
+  }
+  return DEFAULT_PHASE_ENERGY[phaseFor(n, plan)] ?? 0.6;
+}
+
+// One-line lookahead instruction for the Selector: should the next track rise/hold/dip?
+export function arcLookahead(n, plan = null) {
+  const now = arcTargetEnergy(n, plan);
+  const next = arcTargetEnergy(n + 1, plan);
+  const delta = next - now;
+  const dir = delta > 0.06 ? 'rise' : delta < -0.06 ? 'dip' : 'hold';
+  return { now: round2(now), next: round2(next), direction: dir };
+}
+
+// How far BPM may drift from the running set lane before it breaks the flow.
+export function laneWindowFor(phase = 'build') {
+  if (/reset|finale/.test(phase)) return 22;
+  if (/warmup|release/.test(phase)) return 12;
+  return 8; // build/peak: keep a tight lane
+}
 
 export function nextMixTriggerSec(analysis = {}) {
   const mixIn = Math.max(0, Number(analysis.mixInSec) || 0);
@@ -116,6 +154,22 @@ export function trackSuitability(result, options = {}) {
   }
   if (clubIntent && energy < 0.08 && density < 0.035) {
     return { ok: false, reason: 'too low-energy for this set lane' };
+  }
+  // Tempo-lane discipline: keep BPM (half/double aware) near the running set lane.
+  // BPM detection is octave-noisy, so when a reset bridge is allowed we only block
+  // truly absurd jumps; everything else rides in via a tempo reset (never a stall).
+  const laneBpm = Number(options.laneBpm) || 0;
+  if (clubIntent && laneBpm > 0 && !/reset|finale/.test(phase)) {
+    const laneAdjusted = nearestTempoLane(Number(analysis.bpm) || laneBpm, laneBpm);
+    const drift = Math.abs(laneAdjusted - laneBpm);
+    const window = Number(options.laneWindow) || laneWindowFor(phase);
+    const hardLimit = options.allowTempoReset ? Math.max(60, laneBpm * 0.5) : window;
+    if (drift > hardLimit) {
+      return { ok: false, reason: `out of set lane (${Math.round(laneAdjusted)} vs ${Math.round(laneBpm)} BPM)` };
+    }
+    if (drift > window && options.allowTempoReset) {
+      return { ok: true, reason: `tempo reset bridge into lane (${Math.round(laneAdjusted)} -> ${Math.round(laneBpm)} BPM)` };
+    }
   }
   if (options.preferMixable && rateDistance > 0.1 && groove < 0.52 && !canResetTempo) {
     return { ok: false, reason: `wide tempo ride needs stronger groove (${Math.round(rate * 100)}%)` };
@@ -274,7 +328,7 @@ export function useDJController() {
     const info = engine.activeInfo();
     if (!info) return;
     const store = useDJ.getState();
-    const setPhase = phaseFor(store.trackCount);
+    const setPhase = phaseFor(store.trackCount, store.phases);
     const live = engine.performLive(setPhase);
     if (live) maybeReportLiveRide(live, info);
 
@@ -357,12 +411,19 @@ export function useDJController() {
       mixabilityScore: info.analysis.mixabilityScore,
       vocalDensity: info.analysis.vocalDensity,
     };
-    const setPhase = phaseFor(store.trackCount);
+    const setPhase = phaseFor(store.trackCount, store.phases);
+    const laneBpm = Math.round(memory.current?.lastTempoLane || store.bpmTarget || 122);
+    const lookahead = arcLookahead(store.trackCount, store.phases);
     store.setStatus('Selecting the next record...');
+    store.pushFeed(`Set arc: ${setPhase} · energy target ${lookahead.now}→${lookahead.next} (${lookahead.direction}) · lane ${laneBpm} BPM.`, 'info');
     const mix = await postJSON('/api/dj/next', {
       current,
       setPhase,
       bpmTarget: store.bpmTarget,
+      laneBpm,
+      laneWindow: laneWindowFor(setPhase),
+      arcTarget: lookahead.next,
+      arcDirection: lookahead.direction,
       genre: store.genre,
       played: played.current,
       memory: memoryBrief(memory.current),
@@ -381,6 +442,8 @@ export function useDJController() {
       genre: store.genre,
       vibe: store.vibe,
       phase: setPhase,
+      laneBpm,
+      laneWindow: laneWindowFor(setPhase),
       allowTempoReset: true,
     });
     if (stopped.current) return;
@@ -418,18 +481,18 @@ export function useDJController() {
             secondsRemaining: secondsLeft, bpmConfidence: info.analysis.bpmConfidence,
             phraseConfidence: info.analysis.phraseConfidence, downbeatConfidence: info.analysis.downbeatConfidence,
             vocalDensity: info.analysis.vocalDensity, mixabilityScore: info.analysis.mixabilityScore,
-            bestExitWindows: info.analysis.bestExitWindows,
+            bestExitWindows: info.analysis.bestExitWindows, phraseBars: info.analysis.phraseBars,
           },
           incoming: {
             title: meta.title, bpm: meta.bpm, camelot: analysis.camelot, energy: analysis.energy, grooveScore: analysis.grooveScore, mixInSec: analysis.mixInSec,
             bpmConfidence: analysis.bpmConfidence, performanceBrief: mix.performanceBrief,
             phraseConfidence: analysis.phraseConfidence, downbeatConfidence: analysis.downbeatConfidence,
             vocalDensity: analysis.vocalDensity, mixabilityScore: analysis.mixabilityScore,
-            bestEntryWindows: analysis.bestEntryWindows,
+            bestEntryWindows: analysis.bestEntryWindows, dropSec: analysis.dropSec, phraseBars: analysis.phraseBars,
           },
           setPhase, bpmTarget: store.bpmTarget, memory: memoryBrief(memory.current),
         }, keyHeader());
-        recipe = professionalizeRecipe(recipe, info.analysis, analysis, secondsLeft, store.bpmTarget, memory.current);
+        recipe = professionalizeRecipe(recipe, info.analysis, analysis, secondsLeft, store.bpmTarget, memory.current, setPhase);
         store.pushFeed(`DJ Artist plan: ${recipe.type}${recipe.bassSwap ? ' + bass swap' : ''} over ${recipe.lengthBars} bars (${current.camelot}->${meta.camelot}).`, 'info');
         if (recipe.criticNotes?.length) store.pushFeed(`Mix Critic: ${recipe.criticNotes.slice(0, 2).join(' ')}`, 'warn');
       } catch {
@@ -437,7 +500,7 @@ export function useDJController() {
         recipe = safetyRecipe(info.analysis, analysis, secondsLeft);
       }
     }
-    return professionalizeRecipe(recipe, info.analysis, analysis, secondsLeft, store.bpmTarget, memory.current);
+    return professionalizeRecipe(recipe, info.analysis, analysis, secondsLeft, store.bpmTarget, memory.current, setPhase);
   }
 
   async function schedulePendingNext(info) {
@@ -446,7 +509,7 @@ export function useDJController() {
     const store = useDJ.getState();
     const rate = engineRef.current.decks[info.name]?.rate || 1;
     const secondsLeft = Math.max(0, (info.analysis.duration - info.position) / Math.max(0.001, rate));
-    const recipe = professionalizeRecipe(pending.recipe, info.analysis, pending.analysis, secondsLeft, store.bpmTarget, memory.current);
+    const recipe = professionalizeRecipe(pending.recipe, info.analysis, pending.analysis, secondsLeft, store.bpmTarget, memory.current, phaseFor(store.trackCount, store.phases));
     const transition = engineRef.current.mixInto(pending.analysis, pending.meta, recipe);
     played.current.push(pending.meta.query || pending.mix.query);
     store.setStatus('Mix scheduled on the next phrase.');
@@ -459,6 +522,7 @@ export function useDJController() {
       outgoing: info.meta,
       outgoingAnalysis: info.analysis,
       incomingAnalysis: pending.analysis,
+      arcTarget: arcTargetEnergy(store.trackCount, store.phases),
       committed: false,
       summary: `${pending.meta.title} - ${pending.meta.bpm} BPM / ${pending.meta.camelot} / ${recipe.type}${recipe.bassSwap ? ' + bass swap' : ''}`,
     };
@@ -591,11 +655,11 @@ export function withTempoResetIfNeeded(recipe, incoming = {}, currentBpm = 122) 
   return resetRecipe;
 }
 
-export function professionalizeRecipe(recipe, outgoing = {}, incoming = {}, secondsLeft = 60, currentBpm = 122, memory = null) {
+export function professionalizeRecipe(recipe, outgoing = {}, incoming = {}, secondsLeft = 60, currentBpm = 122, memory = null, phase = '') {
   const base = recipe && typeof recipe === 'object' ? recipe : safetyRecipe(outgoing, incoming, secondsLeft);
   let tuned = withTempoResetIfNeeded(base, incoming, currentBpm);
   if (tuned.tempoAutomation?.mode === 'reset') {
-    return critiqueRecipe(tuned, { outgoing, incoming, secondsLeft, currentBpm, memory });
+    return critiqueRecipe(tuned, { outgoing, incoming, secondsLeft, currentBpm, memory, phase });
   }
   if (secondsLeft < 10) {
     tuned = {
@@ -609,7 +673,7 @@ export function professionalizeRecipe(recipe, outgoing = {}, incoming = {}, seco
       effectsAutomation: resetBridgeEffects(0.18, 0.62),
       loopAction: { enabled: false, deck: 'out', lengthBeats: 4, start: 0.45, end: 0.78, reason: 'Late recovery bridge avoids abrupt cut.' },
     };
-    return critiqueRecipe(tuned, { outgoing, incoming, secondsLeft, currentBpm, memory });
+    return critiqueRecipe(tuned, { outgoing, incoming, secondsLeft, currentBpm, memory, phase });
   }
   if (tuned.type === 'cut' && secondsLeft >= 16) {
     tuned = {
@@ -624,7 +688,7 @@ export function professionalizeRecipe(recipe, outgoing = {}, incoming = {}, seco
       loopAction: { enabled: false, deck: 'out', lengthBeats: 4, start: 0.45, end: 0.78, reason: 'Converted hard cut into smoother bridge.' },
     };
   }
-  return critiqueRecipe(tuned, { outgoing, incoming, secondsLeft, currentBpm, memory });
+  return critiqueRecipe(tuned, { outgoing, incoming, secondsLeft, currentBpm, memory, phase });
 }
 
 export function critiqueRecipe(recipe = {}, context = {}) {
@@ -635,7 +699,14 @@ export function critiqueRecipe(recipe = {}, context = {}) {
   const notes = [];
   let r = { ...recipe };
   const tempoGap = Math.abs(nearestTempoLane(incoming.bpm, currentBpm) - currentBpm);
+  const relation = harmonicRelation(outgoing.camelot, incoming.camelot);
   const keyMatch = camelotCompatible(outgoing.camelot, incoming.camelot);
+  const phase = String(context.phase || '').toLowerCase();
+  // A deliberate energy-boost key jump is a legit DJ move when lifting into build/peak.
+  const intentionalBoost = relation.kind === 'energyBoost'
+    && /build|peak|finale/.test(phase)
+    && Number(incoming.energy) >= Number(outgoing.energy || 0)
+    && tempoGap <= 6;
   const vocalClash = Number(outgoing.vocalDensity) > 0.58 && Number(incoming.vocalDensity) > 0.58 && !keyMatch;
   const lowPhraseConfidence = Math.min(Number(outgoing.phraseConfidence) || 0.4, Number(incoming.phraseConfidence) || 0.4) < 0.18;
   const groove = Math.min(Number(outgoing.grooveScore) || 0.4, Number(incoming.grooveScore) || 0.4);
@@ -645,7 +716,7 @@ export function critiqueRecipe(recipe = {}, context = {}) {
     notes.push('Blocked unnecessary loop.');
   }
 
-  if (r.type === 'blend' && (vocalClash || (!keyMatch && tempoGap > 5))) {
+  if (r.type === 'blend' && !intentionalBoost && (vocalClash || (!keyMatch && tempoGap > 5))) {
     r = {
       ...r,
       type: 'filterSweep',
@@ -656,6 +727,8 @@ export function critiqueRecipe(recipe = {}, context = {}) {
       gainAutomation: resetBridgeGain(0.18, 0.9),
     };
     notes.push('Changed risky blend into a filter bridge.');
+  } else if (r.type === 'blend' && intentionalBoost) {
+    notes.push(`Kept intentional energy-boost key lift (${outgoing.camelot}->${incoming.camelot}).`);
   }
 
   if ((r.type === 'bassSwap' || r.bassSwap) && (!keyMatch || groove < 0.32)) {
@@ -809,6 +882,12 @@ export function scoreCompletedTransition(record = {}) {
     score -= 0.1;
     notes.push('weak incoming analysis');
   }
+  // Reward staying on the planned energy arc (realized incoming energy near the target).
+  if (Number.isFinite(Number(record.arcTarget))) {
+    const arcMiss = Math.abs((Number(inn.energy) || 0.5) - Number(record.arcTarget));
+    if (arcMiss < 0.15) { score += 0.06; notes.push('on energy arc'); }
+    else if (arcMiss > 0.35) { score -= 0.06; notes.push('off energy arc'); }
+  }
   if (!notes.length) notes.push('phrase and controller plan completed');
   return { type: recipe.type || 'blend', score: Math.max(0, Math.min(1, score)), notes };
 }
@@ -889,16 +968,30 @@ function impactCutIsClean(outgoing = {}, incoming = {}, currentBpm = 122) {
   return tempoRate >= 0.92 && tempoRate <= 1.08 && grooveOk && phraseOk && (keyOk || Number(incoming.energy) > Number(outgoing.energy || 0) + 0.18);
 }
 
-function camelotCompatible(a, b) {
+// Scored harmonic relationship between two Camelot keys (real-DJ harmonic mixing).
+// Returns { kind, score (0..1), compatible }. Higher score = smoother blend.
+// kinds: perfect | adjacent | relative | dominant | energyBoost | clash.
+export function harmonicRelation(a, b) {
   const ma = /^(\d{1,2})([AB])$/.exec(String(a || '').trim().toUpperCase());
   const mb = /^(\d{1,2})([AB])$/.exec(String(b || '').trim().toUpperCase());
-  if (!ma || !mb) return false;
+  if (!ma || !mb) return { kind: 'unknown', score: 0.4, compatible: false };
   const na = Number(ma[1]);
   const nb = Number(mb[1]);
   const la = ma[2];
   const lb = mb[2];
-  const diff = Math.min(Math.abs(na - nb), 12 - Math.abs(na - nb));
-  return (la === lb && diff <= 1) || (na === nb && la !== lb);
+  const diff = Math.min(Math.abs(na - nb), 12 - Math.abs(na - nb)); // wheel distance
+  if (la === lb && diff === 0) return { kind: 'perfect', score: 1, compatible: true };
+  if (na === nb && la !== lb) return { kind: 'relative', score: 0.92, compatible: true };
+  if (la === lb && diff === 1) return { kind: 'adjacent', score: 0.9, compatible: true }; // ±1 = ±a fifth
+  if (la === lb && diff === 2) return { kind: 'dominant', score: 0.66, compatible: true }; // +2 whole tone, common boost
+  // +7 on the wheel (a +1 semitone modal shift) reads as a deliberate energy lift.
+  const semitoneUp = (na % 12) + 7 <= 0 ? false : (((na + 7 - 1) % 12) + 1) === nb && la === lb;
+  if (semitoneUp || (la === lb && diff === 3)) return { kind: 'energyBoost', score: 0.5, compatible: true };
+  return { kind: 'clash', score: 0.2, compatible: false };
+}
+
+function camelotCompatible(a, b) {
+  return harmonicRelation(a, b).compatible && harmonicRelation(a, b).kind !== 'energyBoost';
 }
 
 function normalizeTrackKey(value) {

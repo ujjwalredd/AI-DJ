@@ -100,8 +100,12 @@ export function livePerformanceFrame(analysis = {}, position = 0, phase = 'build
   const firstBeat = Number(analysis.firstBeatSec) || 0;
   const beat = Math.max(0, (Number(position) - firstBeat) / beatPeriod);
   const bar = Math.floor(beat / 4);
-  const phrase16 = ((bar % 16) + (beat % 4) / 4) / 16; // 0..1 progression over 16 bars
-  const phrase32 = ((bar % 32) + (beat % 4) / 4) / 32; // 0..1 progression over 32 bars
+  const phraseBars = Math.max(4, Number(analysis.phraseBars) || 16);
+  const phrase16 = ((bar % phraseBars) + (beat % 4) / 4) / phraseBars; // 0..1 over one real phrase
+  const phrase32 = ((bar % (phraseBars * 2)) + (beat % 4) / 4) / (phraseBars * 2); // over a double phrase
+  const drop = Number(analysis.dropSec) || 0;
+  const dropConf = clamp01(Number(analysis.dropConfidence) || 0);
+  const beforeDrop = drop > 0 && dropConf > 0.25 && position < drop && position >= drop - beatPeriod * 8;
   const mixIn = Math.max(0, Number(analysis.mixInSec) || 0);
   const introEnd = Math.max(mixIn, Number(analysis.introEndSec) || mixIn + beatPeriod * 16);
   const mixOut = Math.max(introEnd, Number(analysis.mixOutSec) || duration * 0.72);
@@ -139,6 +143,14 @@ export function livePerformanceFrame(analysis = {}, position = 0, phase = 'build
     high += lerp(0.8, 0, introProgress);
     filterHz = expLerp(9500, 22000, introProgress);
     technique = 'intro build';
+  } else if (beforeDrop) {
+    // Tasteful 2-bar riser into the detected drop: open a highpass, lift highs, dip lows.
+    const riseP = clamp01((position - (drop - beatPeriod * 8)) / (beatPeriod * 8));
+    filterType = 'highpass';
+    filterHz = expLerp(60, 1300, riseP);
+    high += 1.2 * riseP;
+    low -= 2.2 * riseP;
+    technique = 'drop riser';
   } else if (breakdown) {
     low = -5.5;
     mid = -1.2;
@@ -157,6 +169,16 @@ export function livePerformanceFrame(analysis = {}, position = 0, phase = 'build
     high += 0.8 * phraseLift;
     mid += treble > 0.65 ? -0.7 : 0.25;
     technique = 'peak drive';
+  }
+
+  // Deterministic phrase "floor": always work the track a little across each phrase
+  // (gentle filter open + high lift) so it never sounds like flat playback, even before
+  // the AI performance script lands. Tasteful only - groove regions, no overrides.
+  const inGroove = !intro && !outro && !breakdown && !beforeDrop;
+  if (inGroove && filterType === 'lowpass' && filterHz >= 21999) {
+    filterHz = expLerp(15500, 22000, smoothstep(phrase16));
+    high += 0.55 * phraseLift;
+    if (technique === 'groove ride') technique = 'phrase ride';
   }
 
   if (bass > 0.74) low -= 1.2;
@@ -305,9 +327,17 @@ export class MixEngine {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.95;
+    // Master glue/limiter: catches overlap peaks when two decks play, soft knee = no pump.
+    this.comp = this.ctx.createDynamicsCompressor();
+    this.comp.threshold.value = -8;
+    this.comp.knee.value = 30;
+    this.comp.ratio.value = 3;
+    this.comp.attack.value = 0.005;
+    this.comp.release.value = 0.25;
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;
-    this.master.connect(this.analyser);
+    this.master.connect(this.comp);
+    this.comp.connect(this.analyser);
     this.analyser.connect(this.ctx.destination);
     this.freq = new Uint8Array(this.analyser.frequencyBinCount);
 
@@ -346,6 +376,8 @@ export class MixEngine {
   setTempoFrom(analysis) { if (analysis?.bpm) this.setTempo(Math.round(analysis.bpm)); }
 
   _makeDeck(name) {
+    // Trim sits at the head of the deck so loud/quiet tracks are level-matched before EQ/faders.
+    const trim = this.ctx.createGain(); trim.gain.value = 1;
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'lowpass'; filter.frequency.value = 22000; filter.Q.value = 0.7;
     const low = this.ctx.createBiquadFilter(); low.type = 'lowshelf'; low.frequency.value = 200;
@@ -354,11 +386,12 @@ export class MixEngine {
     const gain = this.ctx.createGain(); gain.gain.value = 0;
     const echoSend = this.ctx.createGain(); echoSend.gain.value = 0;
     const reverbSend = this.ctx.createGain(); reverbSend.gain.value = 0;
+    trim.connect(filter);
     filter.connect(low); low.connect(mid); mid.connect(high);
     high.connect(gain); gain.connect(this.master);
     high.connect(echoSend); echoSend.connect(this.delay);
     high.connect(reverbSend); reverbSend.connect(this.reverb);
-    return { name, state: 'idle', filter, low, mid, high, gain, echoSend, reverbSend, source: null, stretch: null, analysis: null, meta: null, startCtx: 0, offset: 0, rate: 1, live: null };
+    return { name, state: 'idle', trim, filter, low, mid, high, gain, echoSend, reverbSend, source: null, stretch: null, analysis: null, meta: null, startCtx: 0, offset: 0, rate: 1, live: null };
   }
 
   // Effective playback rate = set tempo / track tempo, folding half/double so far-off
@@ -390,15 +423,16 @@ export class MixEngine {
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.playbackRate.setValueAtTime(rate, at);
+    const head = deck.trim || deck.filter;
     if (this.stretchReady) {
       const stretch = createStretchNode(this.ctx);
       stretch.playbackRate.setValueAtTime(rate, at); // key-lock: compensate pitch for tempo
       try { stretch.pitchSemitones.setValueAtTime(0, at); } catch { /* optional param */ }
       src.connect(stretch);
-      stretch.connect(deck.filter);
+      stretch.connect(head);
       deck.stretch = stretch;
     } else {
-      src.connect(deck.filter);
+      src.connect(head);
       deck.stretch = null;
     }
     deck.source = src;
@@ -415,6 +449,8 @@ export class MixEngine {
     deck.analysis = analysis; deck.meta = meta; deck.rate = this._rate(analysis); deck.state = 'loaded'; deck.live = null;
     const t = this.ctx.currentTime;
     this._wireSource(deck, analysis.buffer, deck.rate, t);
+    // Gain staging: level-match this track to the shared target before EQ/faders.
+    if (deck.trim) scheduleParamValue(deck.trim.gain, Math.max(0.4, Math.min(2.4, Number(analysis.gainTrim) || 1)), t);
     deck.filter.frequency.cancelScheduledValues(t); deck.filter.type = 'lowpass'; scheduleParamValue(deck.filter.frequency, 22000, t);
     scheduleParamValue(deck.low.gain, 0, t); scheduleParamValue(deck.mid.gain, 0, t); scheduleParamValue(deck.high.gain, 0, t);
     scheduleParamValue(deck.gain.gain, 0, t); scheduleParamValue(deck.echoSend.gain, 0, t); scheduleParamValue(deck.reverbSend.gain, 0, t);
@@ -538,9 +574,9 @@ export class MixEngine {
     const lengthBars = r.type === 'cut' ? Math.max(4, Math.min(8, r.lengthBars)) : Math.max(4, r.lengthBars);
     const dur = lengthBars * 4 * this.beatLen;
     const end = start + dur;
-    const inOffset = Math.max(0, analysis.mixInSec ?? analysis.introEndSec ?? analysis.firstBeatSec ?? 0);
+    const inOffset = this._incomingOffset(analysis, r, dur);
 
-    // Start incoming on the phrase downbeat.
+    // Start incoming phrase-aligned so its drop lands on the downbeat.
     inn.source.start(start, inOffset);
     inn.startCtx = start; inn.offset = inOffset; inn.state = 'mixing';
     out.state = 'mixing';
@@ -554,6 +590,25 @@ export class MixEngine {
       recipe: r, tempo, incomingMeta: meta, outgoingMeta: out.meta, status: 'scheduled',
     };
     return this.transitionState;
+  }
+
+  // Phrase-align the incoming entry; when a confident drop exists, offset it so the
+  // drop lands on the outgoing phrase boundary (the handoff) - classic "drop on the one".
+  _incomingOffset(analysis = {}, recipe = {}, dur = 0) {
+    const base = Math.max(0, analysis.mixInSec ?? analysis.introEndSec ?? analysis.firstBeatSec ?? 0);
+    const firstBeat = Number(analysis.firstBeatSec) || 0;
+    const beat = 60 / (Number(analysis.bpm) || this.bpmTarget || 122);
+    const phraseSec = Math.max(beat * 4, (Number(analysis.phraseBars) || 16) * 4 * beat);
+    const snapPhrase = (sec) => Math.max(0, firstBeat + Math.max(0, Math.round((sec - firstBeat) / phraseSec)) * phraseSec);
+    const drop = Number(analysis.dropSec) || 0;
+    const conf = Number(analysis.dropConfidence) || 0;
+    if (drop > 0 && conf > 0.25 && dur > 0) {
+      const inRate = tempoRateFor(analysis.bpm, this.bpmTarget) || 1;
+      const handoffElapsed = dur * recipeHandoffProgress(recipe) * inRate; // track-time used by handoff
+      const want = drop - handoffElapsed;
+      if (want >= 0 && want < drop) return snapPhrase(want);
+    }
+    return snapPhrase(base);
   }
 
   _choreographTempo(out, inn, tempo, at, dur) {

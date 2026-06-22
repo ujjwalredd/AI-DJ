@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { camelotFromChroma, cuePointsFromEnvelope, estimateBpmFromEnvelope, grooveMetrics, smoothEnvelope, trackStructureFromEnvelope } from './analysis.js';
+import { camelotFromChroma, cuePointsFromEnvelope, detectDrop, detectPhraseBars, estimateBpmFromEnvelope, grooveMetrics, integratedLoudness, smoothEnvelope, trackStructureFromEnvelope } from './analysis.js';
 
 function clickEnvelope({ bpm = 120, seconds = 24, fps = 100 }) {
   const total = seconds * fps;
@@ -60,5 +60,38 @@ describe('analysis helpers', () => {
     expect(structure.sections.length).toBeGreaterThan(3);
     expect(structure.bestEntryWindows.length).toBeGreaterThan(0);
     expect(structure.bestExitWindows.length).toBeGreaterThan(0);
+  });
+
+  it('detects a drop where energy jumps after a quiet build', () => {
+    const fps = 100;
+    const beatPeriod = 60 / 124;
+    // 80s: quiet intro/build for ~28s, then a loud drop body.
+    const env = new Array(80 * fps).fill(0.05);
+    for (let i = 28 * fps; i < env.length; i++) env[i] = 0.6;
+    const sm = smoothEnvelope(env, 4);
+    const drop = detectDrop(sm, sm, 0.2, beatPeriod, 0, 80);
+    expect(drop.dropSec).toBeGreaterThan(20);
+    expect(drop.dropSec).toBeLessThan(40);
+    expect(drop.confidence).toBeGreaterThan(0);
+  });
+
+  it('detects a repeating phrase length from the bar series', () => {
+    const fps = 100;
+    const beatPeriod = 60 / 120; // bar = 2s
+    const env = new Array(120 * fps).fill(0.1);
+    // Lift one bar every 16 bars (every 32s) to imply a 16-bar phrase.
+    for (let bar = 0; bar * 32 < 120; bar++) {
+      const s = Math.round(bar * 32 * fps);
+      for (let i = s; i < s + 2 * fps && i < env.length; i++) env[i] = 0.5;
+    }
+    const res = detectPhraseBars(smoothEnvelope(env, 2), beatPeriod, 0);
+    expect([8, 16, 32]).toContain(res.phraseBars);
+  });
+
+  it('computes a gain trim that lifts quiet tracks and tames loud ones', () => {
+    const quiet = new Array(2000).fill(0.04);
+    const loud = new Array(2000).fill(0.4);
+    expect(integratedLoudness(quiet).gainTrim).toBeGreaterThan(1);
+    expect(integratedLoudness(loud).gainTrim).toBeLessThan(1);
   });
 });

@@ -19,7 +19,10 @@ export function analyzeBuffer(buffer) {
   const firstBeatSec = beatPhase(env, mean, bpmInfo.periodFrames) * FRAME;
   const beatPeriod = 60 / bpmInfo.bpm;
   const cues = cuePointsFromEnvelope(env, mean, buffer.duration, beatPeriod, firstBeatSec);
-  const structure = trackStructureFromEnvelope(env, onset, mean, buffer.duration, beatPeriod, firstBeatSec, groove, bpmInfo.confidence);
+  const phrase = detectPhraseBars(env, beatPeriod, firstBeatSec);
+  const structure = trackStructureFromEnvelope(env, onset, mean, buffer.duration, beatPeriod, firstBeatSec, groove, bpmInfo.confidence, phrase.phraseBars);
+  const drop = detectDrop(env, onset, mean, beatPeriod, firstBeatSec, buffer.duration);
+  const loud = integratedLoudness(env, mean);
   const key = camelotKey(data, sr);
   const energy = clamp01(mean * 3.4);
   const peaks = waveformPeaks(data, 1400);
@@ -41,6 +44,13 @@ export function analyzeBuffer(buffer) {
     bestExitWindows: structure.bestExitWindows,
     beatPeriod,
     firstBeatSec,
+    phraseBars: phrase.phraseBars,
+    phraseSec: phrase.phraseBars * 4 * beatPeriod,
+    phraseLengthConfidence: phrase.confidence,
+    dropSec: drop.dropSec,
+    dropConfidence: drop.confidence,
+    loudness: loud.loudness,
+    gainTrim: loud.gainTrim,
     camelot: key.camelot,
     keyConfidence: key.confidence,
     energy,
@@ -52,8 +62,75 @@ export function analyzeBuffer(buffer) {
   };
 }
 
-export function trackStructureFromEnvelope(env, onset = onsetEnvelope(env, avg(env)), mean = avg(env), duration = env.length * FRAME, beatPeriod = 0.5, firstBeatSec = 0, groove = {}, bpmConfidence = 0) {
-  const phraseSec = Math.max(beatPeriod * 16, 8);
+// Per-bar energy series (one value per 4-beat bar) — basis for drop + phrase detection.
+export function barEnergySeries(env, beatPeriod = 0.5, firstBeatSec = 0) {
+  const barSec = Math.max(0.25, beatPeriod * 4);
+  const barFrames = Math.max(4, Math.round(barSec / FRAME));
+  const startFrame = Math.max(0, Math.round(firstBeatSec / FRAME));
+  const bars = [];
+  for (let s = startFrame; s < env.length; s += barFrames) {
+    bars.push(avg(env.slice(s, Math.min(env.length, s + barFrames))));
+  }
+  return { bars, barSec, startFrame };
+}
+
+// Detect the dominant phrase length (8/16/32 bars) by self-similarity of the bar series.
+export function detectPhraseBars(env, beatPeriod = 0.5, firstBeatSec = 0) {
+  const { bars } = barEnergySeries(env, beatPeriod, firstBeatSec);
+  if (bars.length < 24) return { phraseBars: 16, confidence: 0 };
+  const candidates = [8, 16, 32];
+  let best = { phraseBars: 16, score: -Infinity };
+  let total = 0;
+  let count = 0;
+  for (const P of candidates) {
+    if (bars.length < P * 1.5) continue;
+    let num = 0;
+    let n = 0;
+    for (let i = 0; i + P < bars.length; i++) { num += bars[i] * bars[i + P]; n++; }
+    const score = n ? num / n : 0;
+    total += score; count++;
+    if (score > best.score) best = { phraseBars: P, score };
+  }
+  const mean = count ? total / count : 0;
+  const confidence = best.score > 0 ? clamp01((best.score - mean) / Math.max(best.score, 1e-6)) : 0;
+  return { phraseBars: best.phraseBars, confidence };
+}
+
+// Find the biggest low->high energy step that lands on a bar, after the intro region.
+export function detectDrop(env, onset, mean, beatPeriod = 0.5, firstBeatSec = 0, duration = env.length * FRAME) {
+  const { bars, barSec, startFrame } = barEnergySeries(env, beatPeriod, firstBeatSec);
+  if (bars.length < 8) return { dropSec: 0, confidence: 0 };
+  const lookback = 4; // bars of context before the candidate
+  const skipStart = Math.max(1, Math.round((Math.min(duration * 0.12, 16)) / barSec));
+  const skipEnd = Math.max(1, Math.round((Math.min(duration * 0.15, 24)) / barSec));
+  let best = { idx: -1, jump: 0 };
+  for (let i = skipStart + lookback; i < bars.length - skipEnd; i++) {
+    let prev = 0;
+    for (let k = 1; k <= lookback; k++) prev += bars[i - k];
+    prev /= lookback;
+    const jump = bars[i] - prev;
+    if (jump > best.jump) best = { idx: i, jump };
+  }
+  if (best.idx < 0) return { dropSec: 0, confidence: 0 };
+  const dropSec = snapToBeat((startFrame * FRAME) + best.idx * barSec, beatPeriod, firstBeatSec);
+  const confidence = clamp01(best.jump / Math.max(mean, 1e-6));
+  return { dropSec: clamp(dropSec, 0, Math.max(0, duration - 1)), confidence };
+}
+
+// Integrated loudness (approx) over active frames + a trim multiplier toward a shared target.
+export function integratedLoudness(env, mean = avg(env), targetRms = 0.12) {
+  const gate = Math.max(mean * 0.5, 1e-5);
+  let sumSq = 0;
+  let n = 0;
+  for (const v of env) { if (v >= gate) { sumSq += v * v; n++; } }
+  const rms = Math.sqrt(sumSq / Math.max(1, n)) || mean || 1e-5;
+  const loudness = 20 * Math.log10(Math.max(rms, 1e-6)); // dBFS-ish
+  const gainTrim = clamp(targetRms / rms, 0.5, 2.2);
+  return { loudness, gainTrim, rms };
+}
+
+export function trackStructureFromEnvelope(env, onset = onsetEnvelope(env, avg(env)), mean = avg(env), duration = env.length * FRAME, beatPeriod = 0.5, firstBeatSec = 0, groove = {}, bpmConfidence = 0, phraseBars = 16) {
+  const phraseSec = Math.max(beatPeriod * (Number(phraseBars) > 0 ? phraseBars : 16), 8);
   const windowFrames = Math.max(8, Math.round(phraseSec / FRAME));
   const sections = [];
   const onsetMid = percentile(onset, 0.55);

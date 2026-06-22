@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTransitionStages, createDJMemory, critiqueRecipe, livePerformanceWindowSec, memoryBrief, nextMixTriggerSec, nextPreloadTriggerSec, professionalizeRecipe, rememberTrack, scoreCompletedTransition, shouldPrepareNextMix, shouldPreloadNextMix, trackSuitability, transitionHandoffRatio, withTempoResetIfNeeded } from './useDJController.js';
+import { arcLookahead, arcTargetEnergy, buildTransitionStages, createDJMemory, critiqueRecipe, harmonicRelation, laneWindowFor, livePerformanceWindowSec, memoryBrief, nextMixTriggerSec, nextPreloadTriggerSec, professionalizeRecipe, rememberTrack, scoreCompletedTransition, shouldPrepareNextMix, shouldPreloadNextMix, trackSuitability, transitionHandoffRatio, withTempoResetIfNeeded } from './useDJController.js';
 
 describe('DJ mix trigger timing', () => {
   it('prepares and performs around the first live phrase window on long tracks', () => {
@@ -30,6 +30,45 @@ describe('DJ mix trigger timing', () => {
     expect(nextMixTriggerSec(analysis)).toBe(70);
     expect(shouldPrepareNextMix({ analysis, position: 69.9 })).toBe(false);
     expect(shouldPrepareNextMix({ analysis, position: 70 })).toBe(true);
+  });
+});
+
+describe('harmonic relations', () => {
+  it('scores Camelot relationships', () => {
+    expect(harmonicRelation('8A', '8A').kind).toBe('perfect');
+    expect(harmonicRelation('8A', '8B').kind).toBe('relative');
+    expect(harmonicRelation('8A', '9A').kind).toBe('adjacent');
+    expect(harmonicRelation('8A', '2A').kind).toBe('clash');
+    expect(harmonicRelation('8A', '8A').score).toBeGreaterThan(harmonicRelation('8A', '2A').score);
+    expect(harmonicRelation('8A', '8B').compatible).toBe(true);
+  });
+});
+
+describe('set arc + tempo lane', () => {
+  it('reads target energy and lookahead from a planned curve', () => {
+    const phases = [
+      { name: 'warmup', energy: 0.3, targetEnergy: 0.4 },
+      { name: 'build', energy: 0.6, targetEnergy: 0.7 },
+      { name: 'peak', energy: 0.9, targetEnergy: 0.9 },
+    ];
+    expect(arcTargetEnergy(0, phases)).toBeCloseTo(0.4, 5);
+    expect(arcTargetEnergy(2, phases)).toBeCloseTo(0.9, 5);
+    expect(arcLookahead(0, phases).direction).toBe('rise');
+  });
+
+  it('tightens the lane window in build/peak vs finale', () => {
+    expect(laneWindowFor('peak')).toBeLessThan(laneWindowFor('finale'));
+  });
+
+  it('keeps in-lane picks clean and bridges modest drift instead of stalling', () => {
+    const base = { meta: { title: 'X', query: 'A - X' }, analysis: { bpmConfidence: 0.4, grooveScore: 0.8, onsetDensity: 0.2, energy: 0.6 } };
+    const inLane = { ...base, analysis: { ...base.analysis, bpm: 126 } };
+    const drifted = { ...base, analysis: { ...base.analysis, bpm: 150 } };
+    const okInLane = trackSuitability(inLane, { genre: 'house', vibe: 'club', rate: 1, phase: 'peak', laneBpm: 124, allowTempoReset: true });
+    const okDrift = trackSuitability(drifted, { genre: 'house', vibe: 'club', rate: 1, phase: 'peak', laneBpm: 124, allowTempoReset: true });
+    expect(okInLane.ok).toBe(true);
+    expect(okDrift.ok).toBe(true); // never stalls - rides in via a reset bridge
+    expect(okDrift.reason).toMatch(/reset bridge/);
   });
 });
 

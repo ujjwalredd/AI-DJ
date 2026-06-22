@@ -1,5 +1,5 @@
 import { Canvas, useFrame } from '@react-three/fiber';
-import { ContactShadows, useGLTF, PresentationControls, Environment, Lightformer } from '@react-three/drei';
+import { useGLTF, PresentationControls, Environment, Lightformer } from '@react-three/drei';
 import { Component, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useDJ } from '../store.js';
@@ -184,12 +184,17 @@ export default function DJStage3D({ cameraPhase = 'live' }) {
       <Canvas
         shadows
         camera={{ position: [5.4, 3.5, 6.4], fov: 40 }}
-        gl={{ antialias: true, alpha: true, powerPreference: 'high-performance', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
+        gl={{ antialias: true, alpha: false, powerPreference: 'high-performance', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
         dpr={[1, 1.75]}
+        onCreated={({ gl, scene }) => {
+          // Opaque light clear color so the canvas can NEVER composite to black
+          // on GPUs/browsers that mishandle the transparent (alpha) drawing buffer.
+          gl.setClearColor('#f5f5f7', 1);
+          scene.background = new THREE.Color('#f5f5f7');
+        }}
       >
         <Suspense fallback={null}>
           <CameraController engine={engine} cameraPhase={cameraPhase} reducedMotion={reducedMotion} />
-          {cameraPhase === 'live' && <AIBrain live={true} />}
           <ambientLight intensity={1.15} />
           <hemisphereLight args={['#ffffff', '#c8ccd2', 1.0]} />
           <directionalLight color="#ffffff" position={[3, 8, 4]} intensity={1.5} castShadow shadow-mapSize={[1024, 1024]} />
@@ -215,7 +220,6 @@ export default function DJStage3D({ cameraPhase = 'live' }) {
               <RealController deckA={deckA} deckB={deckB} transition={transition} reducedMotion={reducedMotion} landing={landing} />
             </PresentationControls>
           </Suspense>
-          <ContactShadows position={[0, -0.02, 0]} opacity={0.5} scale={20} blur={2.6} far={1.5} frames={1} />
         </Suspense>
       </Canvas>
     </div>
