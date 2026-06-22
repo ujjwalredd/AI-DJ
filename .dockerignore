@@ -8,3 +8,4 @@ cache
 test-results
 playwright-report
 bin/yt-dlp_macos
+assets

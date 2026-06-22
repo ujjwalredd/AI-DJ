@@ -5,9 +5,21 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "dev": "npm start",
     "start": "node --env-file-if-exists=.env server.js",
-    "build": "cd frontend && npm install && npm run build"
+    "build": "cd frontend && npm install && npm run build",
+    "test": "cd frontend && npm run test",
+    "test:visual": "cd frontend && npm run test:visual",
+    "audit:all": "npm audit && cd frontend && npm audit"
   },
+  "keywords": [
+    "ai-dj",
+    "web-audio",
+    "react",
+    "threejs",
+    "yt-dlp",
+    "anthropic"
+  ],
   "engines": {
     "node": ">=18"
   },

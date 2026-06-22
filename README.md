@@ -1,5 +1,7 @@
 # AI DJ
 
+![AI DJ demo](assets/demo.gif)
+
 AI DJ is a self-hosted autonomous AI DJ system. It builds a live set from a plain-language vibe, searches for real tracks with `yt-dlp`, analyzes the decoded audio in the browser, and performs a continuous two-deck DJ mix with Web Audio, React, and a real-time 3D controller UI.
 
 The goal is not a playlist with a crossfade. AI DJ is structured like a DJ crew:
@@ -625,14 +627,12 @@ http://127.0.0.1:5173
 Unit tests:
 
 ```bash
-cd frontend
-npm run test
+npm test
 ```
 
 Visual tests:
 
 ```bash
-cd frontend
 npm run test:visual
 ```
 
@@ -645,9 +645,7 @@ npm run build
 Security/audit checks:
 
 ```bash
-npm audit
-cd frontend
-npm audit
+npm run audit:all
 ```
 
 Smoke checks:
@@ -684,8 +682,9 @@ Manual acceptance:
 ## Security Notes
 
 - `.env` is gitignored.
+- `.env.*` is gitignored, except `.env.example`.
 - Do not commit real API keys.
-- Current placeholder examples use fake values only.
+- `.env.example` intentionally leaves secret values blank.
 - Express disables `x-powered-by`.
 - Security headers are set without extra dependencies:
   - `X-Content-Type-Options`
@@ -697,6 +696,7 @@ Manual acceptance:
 - `/api/song` checks URLs and rejects localhost/private-network targets.
 - `/audio/:id` validates IDs before filesystem access.
 - Browser-entered Anthropic keys are transient and per-session.
+- For security reports, follow `SECURITY.md` and do not open public issues with exploit details or secrets.
 
 ## Deployment Notes
 
@@ -769,6 +769,46 @@ A residential proxy is the heavier fallback if cookies are not enough.
 - Key-lock depends on the SoundTouch worklet being available; otherwise playback-rate fallback may shift pitch.
 - Generated mixes are for local/prototype use. This is not a licensed music distribution system.
 - The DJ Artist can be guided and corrected, but final mix quality still depends on fetched audio quality and beat/phrase confidence.
+
+## Open Source And Contribution Workflow
+
+AI DJ is MIT licensed and set up for public collaboration.
+
+Repository hygiene files:
+
+- `LICENSE` — MIT license for project source code.
+- `CONTRIBUTING.md` — local setup, PR expectations, test commands, and DJ behavior standards.
+- `SECURITY.md` — vulnerability reporting and secret-handling policy.
+- `CODE_OF_CONDUCT.md` — community expectations.
+- `THIRD_PARTY_NOTICES.md` — asset and dependency licensing notes.
+- `.github/PULL_REQUEST_TEMPLATE.md` — review checklist for PRs.
+- `.github/ISSUE_TEMPLATE/` — bug and feature issue forms.
+- `.github/workflows/ci.yml` — build, unit test, and audit checks for pushes/PRs.
+- `.github/dependabot.yml` — weekly dependency update PRs.
+
+Recommended PR flow:
+
+1. Create a focused branch.
+2. Make the change with tests or clear manual verification notes.
+3. Run:
+
+```bash
+npm run build
+npm test
+npm run audit:all
+```
+
+4. Run `npm run test:visual` for UI, 3D, layout, or interaction changes.
+5. Open a PR using the template and include screenshots or recordings for visual changes.
+
+Do not commit:
+
+- `.env` or `.env.*` files
+- Anthropic API keys
+- YouTube cookies
+- downloaded audio cache files
+- generated build output
+- unlicensed music, images, videos, fonts, or 3D models
 
 ## License
 

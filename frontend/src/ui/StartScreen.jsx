@@ -108,7 +108,7 @@ export default function StartScreen({ onStart, onBack }) {
             type="password"
             value={apiKey}
             onChange={(e) => onKey(e.target.value)}
-            placeholder="sk-ant-..."
+            placeholder="Paste key for AI mode"
             autoComplete="off"
             disabled={busy}
             className="min-h-14 w-full rounded-xl border-subtle bg-platinum px-4 font-mono text-sm text-ink outline-none transition-all placeholder:text-ink/30 focus:border-ink focus:bg-white focus:ring-2 focus:ring-ink disabled:cursor-progress disabled:opacity-50"

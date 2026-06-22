@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What limitation or workflow should this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should happen?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Landing/UI
+        - 3D controller
+        - Audio analysis
+        - MixEngine
+        - AI agents
+        - yt-dlp/extraction
+        - Deployment
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Extra context
+      description: Add references, examples, screenshots, or track-pair notes if useful.

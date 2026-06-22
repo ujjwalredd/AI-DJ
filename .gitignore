@@ -2,8 +2,14 @@ node_modules/
 cache/
 garments/
 .env
+.env.*
+!.env.example
+.DS_Store
+coverage/
 frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
 *.log
 .claude/
+.idea/
+.vscode/
