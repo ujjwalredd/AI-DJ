@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { postJSON } from '../api.js';
-import { keyHeader } from '../config/apiKey.js';
+import { keyHeader, loadKey } from '../config/apiKey.js';
 import { analyzeTrack } from '../audio/analysis.js';
 import { MixEngine, nearestTempoLane, tempoRateFor } from '../audio/MixEngine.js';
 import { useDJ } from '../store.js';
@@ -272,6 +272,8 @@ export function useDJController() {
       store.setEngine(engine);
       await engine.resume();
 
+      const aiMode = !!loadKey().trim();
+      store.pushFeed(aiMode ? 'AI DJ mode: Claude is planning and mixing this set.' : `Default DJ mode: built-in ${genre} crate (add an API key for the full AI DJ).`, 'info');
       store.setStatus('Planning the set...');
       const plan = await postJSON('/api/dj/plan', { vibe, genre, bpmTarget }, keyHeader());
       store.setPlan(plan);
@@ -425,6 +427,7 @@ export function useDJController() {
       arcTarget: lookahead.next,
       arcDirection: lookahead.direction,
       genre: store.genre,
+      vibe: store.vibe,
       played: played.current,
       memory: memoryBrief(memory.current),
     }, keyHeader());

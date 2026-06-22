@@ -5,7 +5,8 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { extract, searchAndFetch, idFor, findCached } from './lib/extract.js';
-import { planSet, nextMix, designTransition, generatePerformanceScript } from './lib/dj-agents.js';
+import { planSet, nextMix, designTransition, generatePerformanceScript, normalizeTransition } from './lib/dj-agents.js';
+import { defaultPlan, defaultMix, defaultPerform } from './lib/default-dj.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -123,29 +124,43 @@ function userKeyOf(req, res) {
   if (!k && !process.env.ANTHROPIC_API_KEY) { res.status(401).json({ error: 'Add your Anthropic API key to run the AI DJ.' }); return false; }
   return k || undefined;
 }
+// Optional key: rejects a malformed header key (false), else returns the AI key to use
+// (string user key or undefined for env), or null when there is NO key at all -> the
+// caller should fall back to the deterministic default DJ instead of erroring.
+function userKeyOptional(req, res) {
+  const k = (req.header('x-anthropic-key') || '').trim();
+  if (k && !/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(k)) { res.status(400).json({ error: 'That Anthropic API key looks invalid.' }); return false; }
+  if (k) return k;
+  return process.env.ANTHROPIC_API_KEY ? undefined : null;
+}
 function djError(res, err, what) {
   const status = err?.status === 401 ? 401 : 500;
   console.error(`[${what} failed]`, status === 401 ? 'invalid user key' : (err.message || '').slice(0, 140));
   res.status(status).json({ error: status === 401 ? 'Your API key was rejected by Anthropic.' : `The DJ ${what} step failed.` });
 }
 
-// AI DJ: plan the set + opener.
+// AI DJ: plan the set + opener. No key -> deterministic default crate.
 app.post('/api/dj/plan', async (req, res) => {
-  const key = userKeyOf(req, res); if (key === false) return;
-  try {
-    res.json(await planSet({
-      vibe: String(req.body?.vibe || '').slice(0, 200),
-      genre: String(req.body?.genre || '').slice(0, 40),
-      bpmTarget: Number(req.body?.bpmTarget) || undefined,
-    }, key));
-  }
+  const key = userKeyOptional(req, res); if (key === false) return;
+  const args = {
+    vibe: String(req.body?.vibe || '').slice(0, 200),
+    genre: String(req.body?.genre || '').slice(0, 40),
+    bpmTarget: Number(req.body?.bpmTarget) || undefined,
+  };
+  if (key === null) return res.json(defaultPlan(args));
+  try { res.json(await planSet(args, key)); }
   catch (err) { djError(res, err, 'plan'); }
 });
 
 // AI DJ: choose the next track + transition recipe + commentary.
 app.post('/api/dj/next', async (req, res) => {
-  const key = userKeyOf(req, res); if (key === false) return;
+  const key = userKeyOptional(req, res); if (key === false) return;
   const b = req.body ?? {};
+  if (key === null) return res.json(defaultMix({
+    genre: String(b.genre || '').slice(0, 40),
+    vibe: String(b.vibe || '').slice(0, 200),
+    played: Array.isArray(b.played) ? b.played.slice(-16).map((s) => String(s).slice(0, 80)) : [],
+  }));
   try {
     res.json(await nextMix({
       current: b.current || {}, setPhase: b.setPhase, bpmTarget: Number(b.bpmTarget) || 122,
@@ -161,8 +176,9 @@ app.post('/api/dj/next', async (req, res) => {
 
 // AI DJ: design the transition from BOTH tracks' real analyzed audio.
 app.post('/api/dj/transition', async (req, res) => {
-  const key = userKeyOf(req, res); if (key === false) return;
+  const key = userKeyOptional(req, res); if (key === false) return;
   const b = req.body ?? {};
+  if (key === null) return res.json(normalizeTransition({})); // default deterministic recipe
   try {
     res.json(await designTransition({
       outgoing: b.outgoing || {}, incoming: b.incoming || {},
@@ -185,7 +201,8 @@ app.post('/api/dj/track', async (req, res) => {
 });
 
 app.post('/api/dj/perform', express.json({ limit: '2mb' }), async (req, res) => {
-  const key = userKeyOf(req, res); if (key === false) return;
+  const key = userKeyOptional(req, res); if (key === false) return;
+  if (key === null) return res.json(defaultPerform()); // no key -> rely on the local phrase floor
   try {
     const script = await generatePerformanceScript(req.body, key);
     res.json({ liveEvents: script });

@@ -114,7 +114,7 @@ export default function StartScreen({ onStart, onBack }) {
             className="min-h-14 w-full rounded-xl border-subtle bg-platinum px-4 font-mono text-sm text-ink outline-none transition-all placeholder:text-ink/30 focus:border-ink focus:bg-white focus:ring-2 focus:ring-ink disabled:cursor-progress disabled:opacity-50"
           />
           <p className="mt-3 text-sm leading-relaxed text-ink/50">
-            Leave blank when the server has `ANTHROPIC_API_KEY`. Browser keys stay in session storage.
+            Leave blank to run the built-in default DJ (curated songs per genre). Add a key for the full AI DJ that digs real in-scene songs and designs every transition. Browser keys stay in session storage.
           </p>
         </div>
 

@@ -8,6 +8,9 @@
     "start": "node --env-file-if-exists=.env server.js",
     "build": "cd frontend && npm install && npm run build"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",
     "express": "^4.19.2"

@@ -545,6 +545,12 @@ IDs must match:
 | `ANTHROPIC_MODEL` | No | none | Backward-compatible model fallback |
 | `CACHE_DIR` | No | `./cache` | Audio cache directory |
 | `PORT` | No | `3000` | Express server port |
+| `YTDLP_BIN` | No | macOS binary / `yt-dlp` on PATH | Path to the yt-dlp binary (Linux/containers use PATH) |
+| `YTDLP_COOKIES_FILE` | No | none | Path to a YouTube `cookies.txt` for cloud-IP access |
+| `YTDLP_COOKIES_B64` | No | none | Base64 of `cookies.txt` (decoded to a temp file at boot) |
+
+Without any API key the app runs the built-in **default DJ** (curated real songs per
+genre); with a key it runs the full **AI DJ**.
 
 The app can use either:
 
@@ -708,6 +714,52 @@ Good targets:
 Poor fit:
 
 - serverless-only hosts where arbitrary binaries and persistent cache writes are restricted
+
+### Deploy to Railway (recommended)
+
+The repo ships a `Dockerfile` (installs `yt-dlp` + `ffmpeg`), a `.dockerignore`, and a
+`railway.json`.
+
+1. Push the repo to GitHub.
+2. Railway → New Project → Deploy from GitHub repo. It builds from the `Dockerfile`.
+3. Add a **Volume** mounted at `/data` (the cache lives at `CACHE_DIR=/data/cache`, set
+   in the Dockerfile, so it survives redeploys).
+4. Env vars:
+   - `PORT` — provided by Railway automatically.
+   - `ANTHROPIC_API_KEY` — **leave unset** if you want visitors to get the built-in
+     default DJ unless they paste their own key. Set it only to force AI for everyone.
+   - `YTDLP_COOKIES_B64` *(optional)* — base64 of a YouTube `cookies.txt`, used only if
+     YouTube starts blocking the datacenter IP (see below).
+5. Open the generated URL.
+
+Local Docker check:
+
+```bash
+docker build -t aidj .
+docker run -p 3000:3000 -v "$PWD/cache:/data/cache" aidj
+# open http://localhost:3000
+```
+
+### Two DJ modes (key vs no-key)
+
+- **No API key** → the **default DJ** runs: deterministic, curated real-song crates per
+  genre chip (`lib/default-dj.js`), mixed with the local transition engine + live
+  performance floor. Zero AI cost.
+- **API key present** (server `ANTHROPIC_API_KEY` or a per-user key in the UI) → the
+  **AI DJ** runs: dynamic in-scene song digging, set-arc planning, and per-transition
+  design. No song catalog.
+
+### YouTube on cloud IPs
+
+Datacenter IPs (including Railway) can be rate-limited or bot-blocked by YouTube. If
+fetches fail with HTTP 429 / "Sign in to confirm you're not a bot":
+
+1. Export `cookies.txt` from a logged-in YouTube session (a browser extension).
+2. `base64 -w0 cookies.txt` and set the result as `YTDLP_COOKIES_B64` (or mount the file
+   and set `YTDLP_COOKIES_FILE`).
+3. Redeploy. `lib/extract.js` passes `--cookies` to every yt-dlp call automatically.
+
+A residential proxy is the heavier fallback if cookies are not enough.
 
 ## Known V1 Limits
 
