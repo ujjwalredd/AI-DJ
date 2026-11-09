@@ -25,6 +25,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",
-    "express": "^4.19.2"
+    "express": "^5.2.1"
   }
 }
